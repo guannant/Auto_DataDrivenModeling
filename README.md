@@ -1,4 +1,4 @@
-# 🤖 An LLM-Agentic Workflow for Multi-Objective Optimization  
+# 🤖 An LLM-Agentic Workflow for Data-Driven Modeling  
 **From Toy Image Reconstruction to Cu–Mg CALPHAD Assessment**
 
 ---
@@ -7,9 +7,9 @@
 
 This repository provides the code implementation for our paper:
 
-**“An LLM-Agentic Workflow for Multi-Objective Optimization: From Toy Image Reconstruction to Cu–Mg CALPHAD Assessment.”**
+**“An LLM-Agentic Workflow for Data-Driven Modeling: From Toy Image Reconstruction to Thermodynamic Modeling”**
 
-We introduce **Auto-Weighter**, a novel hybrid optimization system that integrates large language model (LLM) agents into a multi-objective evolutionary algorithm. The method significantly improves the quality and efficiency of continuous optimization, particularly in data-scarce, high-dimensional domains.
+We introduce **Auto-DDM (data driven modeling)**, a novel hybrid optimization system that integrates large language model (LLM) agents into a multi-objective evolutionary algorithm. The method significantly improves the quality and efficiency of continuous optimization, particularly in data-scarce, high-dimensional domains.
 
 ---
 
