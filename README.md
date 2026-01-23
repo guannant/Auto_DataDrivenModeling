@@ -8,6 +8,7 @@
 This repository provides the code implementation for our paper:
 
 **“An LLM-Agentic Workflow for Data-Driven Modeling: From Toy Image Reconstruction to Thermodynamic Modeling”**
+preprint available at: https://www.researchsquare.com/article/rs-8574739/v2
 
 We introduce **Auto-DDM (data driven modeling)**, a novel hybrid optimization system that integrates large language model (LLM) agents into a multi-objective evolutionary algorithm. The method significantly improves the quality and efficiency of continuous optimization, particularly in data-scarce, high-dimensional domains.
 
