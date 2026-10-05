@@ -1,0 +1,17 @@
+# Tested with Python 3.12 on macOS (Apple M4).
+
+# Core framework (both examples)
+numpy==2.4.3
+scikit-learn==1.8.0
+langgraph==1.1.2
+openai==2.26.0
+matplotlib==3.10.8
+
+# CALPHAD example only
+pyyaml==6.0.3
+pycalphad==0.11.1
+scipy==1.17.1
+torch==2.10.0
+joblib==1.5.3
+# Auto-DDM fork of ESPEI with the MLP surrogate
+espei @ git+https://github.com/guannant/llm_espei.git@6f5cade7684532f4aee72c33406118cf2ed567e0

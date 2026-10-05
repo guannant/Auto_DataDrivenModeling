@@ -10,6 +10,7 @@ def create_llm_condense_repair_agent(llm, max_retries=10):
         n_vars = parent_pool.shape[1]
         n_objs = parent_objectives.shape[1]
         bounds = state.get("bounds", None)
+        problem = state["problem"]
 
         if bounds is not None:
             lower, upper = bounds
@@ -42,7 +43,8 @@ def create_llm_condense_repair_agent(llm, max_retries=10):
                 f"Pareto dominance checks: when comparing two objective vectors, solution A "
                 f"is considered to dominate B if A is better in at least one objective and "
                 f"no worse than B in others by more than epsilon.\n"
-                f"- Goal: reduce the Pareto front size from {pool_size} to between "
+                + problem.epsilon_prompt_hint
+                + f"- Goal: reduce the Pareto front size from {pool_size} to between "
                 f"{lower_target} and {upper_target}.\n"
                 "- The epsilon must be a single positive float.\n\n"
                 "Output format:\n"
@@ -57,8 +59,8 @@ def create_llm_condense_repair_agent(llm, max_retries=10):
                 f"- Std:  {obj_std}\n"
                 f"- Min:  {obj_min}\n"
                 f"- Max:  {obj_max}\n\n"
-                f"- Current epsilon: {cur_epsilon}\n"
-                f"Given these values, propose ONLY a single positive epsilon "
+                + (f"- Current epsilon: {cur_epsilon}\n" if problem.show_current_epsilon else "")
+                + f"Given these values, propose ONLY a single positive epsilon "
                 f"so that the Pareto front size falls between {lower_target} and {upper_target}."
             )
 
@@ -98,29 +100,14 @@ def create_llm_condense_repair_agent(llm, max_retries=10):
             param_diversity = np.std(parent_pool, axis=0)
 
             # --- Step 3: Bad set summary per objective ---
-            bad_summary_lines = []
-            for idx in bad_idx:
-                bad_dims = np.where(parent_objectives[idx] < 20)[0].tolist()
-                bad_summary_lines.append(
-                    f"- Row {idx}: has objectives more than threshold in those index {bad_dims}; "
-                    f"params={np.array2string(parent_pool[idx], precision=3, separator=', ')}, "
-                    f"objs={np.array2string(parent_objectives[idx], precision=3, separator=', ')}"
-                )
-            
+            bad_summary_lines = [
+                problem.describe_bad_set(idx, parent_pool[idx], parent_objectives[idx])
+                for idx in bad_idx
+            ]
             bad_summary = "\n".join(bad_summary_lines) if len(bad_summary_lines) else "None found."
             system_message = (
-                "System: You are an optimization agent tuning parameters (σ array) for a multi-objective evolutionary algorithm.\n\n"
-                "Problem summary:\n"
-                f"- There are {n_vars} datasets, each with its own RMS error objective e_k (lower is better).\n"
-                f"- Each candidate parameter vector has length {n_vars}: per-dataset scale parameters σ_k.\n"
-                f"- Each reconstruction yields an objective vector of length {n_objs}: RMS residuals e_k for each dataset (lower is better).\n\n"
-                f"- The overall goal is to minimize all RMS objectives as much as possible (multi-objective minimization) by repairing the bad parameter sets (adjust the σ values to proper values).\n"
-                "How parameters drive objectives:\n"
-                "- The parameters σ_k act as scaling factors in the minimization process.\n"
-                "- Smaller σ_k → dataset k has more influence, which will reduce its error but risks overfitting its noise and hurting other datasets.\n"
-                "- Larger σ_k → dataset k has less influence, which will prevent overfitting but can leave its error high.\n"
-                "- Your job:find σ values that reduce all RMS objectives without collapsing into overfitting on one dataset or ignoring others.\n\n"
-                "What you will be given, and how it can help:\n"
+                problem.repair_prompt_header(n_vars, n_objs)
+                + "What you will be given, and how it can help:\n"
                 "1) Full parameter pool and objectives.\n"
                 "2) Summary of BAD sets (non-Pareto points with high RMS on specific objectives).\n"
                 "3) Parameter–parameter correlation (how σ interact with each other).\n"
@@ -143,17 +130,7 @@ def create_llm_condense_repair_agent(llm, max_retries=10):
                 "   • Use these scores to decide which σ to perturb and by how much.\n"
                 f"7) Bounds: all σ must remain strictly inside {bounds_str}.\n"
                 f"8) Repair budget: you may adjust at most {budget} parameters per bad set.\n\n"
-                "**Guidelines:**\n"
-                "- You should aim for all objectives to be as low as possible (<20).\n"
-                "- Use these facts to identify which parameters to change, by how much, and why\n"
-                "- Learn from the correlations, PCA, and diversity to make meaningful edits (either big or small) to the parameters.\n"
-                "- Focus on reducing errors for bad sets while maintaining balance.\n"
-                "- Do not collapse all σ to extremes (0 or max).\n"
-                "Output format (STRICT):\n"
-                f"- Return a valid Python list of {len(bad_idx)} dicts.\n"
-                "- the current pareto sets might be a temporary solution during the exploration and don't trust their objectives in terms of what is optimal.\n"
-                f"- Each dict must have 'values' (a list of {n_vars} floats) and 'rationale' (short text).\n"
-                "- The FIRST LINE of your reply must be ONLY that Python list—no extra text."
+                + problem.repair_prompt_footer(len(bad_idx), n_vars)
             )
 
             # --- Step 5: User Prompt ---

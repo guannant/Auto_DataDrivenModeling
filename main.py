@@ -1,156 +1,83 @@
-import json
-import numpy as np
-from utils.NSGA_related import get_pareto_front_indices, initialize_gaussian_pool, select_parent_indices, get_bounds_and_constraints, get_index_mapping_note
-from utils.CALPHAD_related import batch_objective_eval
-from agents.chatbox import openai_chat_completion  
-from optimizer.network import build_ea_langgraph_merged
+"""
+Auto-DDM entry point.
 
-def run_optimization(
-    n_var: int = 22,
-    n_obj: int = 22,  # kept for completeness in case you use it elsewhere
-    pool_size: int = 20,
-    max_generations: int = 50,
-    seed: int = 0,
-    weights_path: str = "examples/CALPHAD/Pytorch_MLP_CV/weights.json",
-    lower_bound: float = 1e-2,
-    upper_bound: float = 1000.0,
-    init_std: float = 0.8,
-    budget: int | None = None,
-    recursion_limit: int = 10_000,
-    most_recent: int = 50,
-) -> None:
-    """
-    Main entry point for running the LLM-agentic evolutionary optimization.
+Examples:
+    python main.py --example image_toy --seed 0
+    python main.py --example calphad
+    python main.py --list
+"""
+import argparse
+import os
+from dataclasses import replace
+from pathlib import Path
 
-    Parameters
-    ----------
-    n_var : int
-        Number of decision variables.
-    n_obj : int
-        Number of objectives (kept for completeness).
-    pool_size : int
-        Number of candidates in the population.
-    max_generations : int
-        Maximum number of generations to run.
-    seed : int
-        Random seed for reproducibility.
-    weights_path : str
-        Path to the initial weights.json file.
-    lower_bound : float
-        Lower bound for all parameters.
-    upper_bound : float
-        Upper bound for all parameters.
-    init_std : float
-        Standard deviation (or scale) used to initialize the Gaussian pool.
-    budget : int | None
-        Evaluation budget; defaults to n_obj if not provided.
-    recursion_limit : int
-        LangGraph recursion limit.
-    most_recent : int
-        Number of most recent candidates to keep / track (if used downstream).
-    """
+from examples import EXAMPLES, load_problem
 
-    rng = np.random.default_rng(seed=seed)
+REPO_ROOT = Path(__file__).resolve().parent
 
-    # Bounds
-    lower = np.full(n_var, lower_bound, dtype=float)
-    upper = np.full(n_var, upper_bound, dtype=float)
-    bounds = (lower, upper)
 
-    # LLM interface
-    llm = openai_chat_completion
-
-    # Load initial parameter vector from weights.json
-    with open(weights_path, "r") as f:
-        init_params_dict = json.load(f)
-    init_params = np.array(list(init_params_dict.values()), dtype=float)
-
-    # Initialize population
-    param_pool = initialize_gaussian_pool(
-        rng=rng,
-        center_point=init_params,
-        n_samples=pool_size,
-        std=init_std,
-        bounds=bounds,
-    )
-
-    # Initial objective evaluation
-    objectives = batch_objective_eval(param_pool, 0)
-
-    # Select parents
-    selected_idx = select_parent_indices(rng, objectives, pool_size)
-    parent_pool = param_pool[selected_idx]
-    parent_objectives = objectives[selected_idx]
-
-    # Operator metadata
-    bounds_and_constraints = get_bounds_and_constraints(bounds)
-    index_mapping_note = get_index_mapping_note(n_var)
-
-    history = [
-        {
-            "objectives": parent_objectives,
-            "parent_pool": parent_pool,
-        }
-    ]
-
-    # Default budget: use number of objectives if not provided
-    if budget is None:
-        budget = n_obj
-
-    # Initial state for the LangGraph workflow
-    init_state = {
-        "parent_pool": parent_pool,
-        "parent_objectives": parent_objectives,
-        "llm": llm,
-        "bounds_and_constraints": bounds_and_constraints,
-        "index_mapping_note": index_mapping_note,
-        "history": history,
-        "bounds": bounds,
-        "pool_size": pool_size,
-        "generation": 0,
-        "budget": budget,
-        "max_generations": max_generations,
-        "all_para": parent_pool,
-        "all_obj": parent_objectives,
-        "rng": rng,
-        "eps_vals": 0.0,
-        "most_recent": most_recent,
-    }
-
-    workflow = build_ea_langgraph_merged()
-
-    print("Starting optimization...")
-    step = 1
-
-    # Stream over the workflow execution
-    for event in workflow.stream(init_state, config={"recursion_limit": recursion_limit}):
-        # Each event is a dict {node_name: state}
-        node_name, node_state = next(iter(event.items()))
-
-        if node_name != "EvalAndSurvivor":
+def load_env_file(path):
+    """Read KEY=VALUE lines from a .env file. Variables already set in the shell win."""
+    path = Path(path)
+    if not path.exists():
+        return
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
             continue
+        key, value = line.split("=", 1)
+        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
 
-        print(f"----- Generation {step} -----")
 
-        eps = node_state.get("new_epsilon", node_state.get("eps_vals", 0.0))
-        all_obj = node_state["all_obj"]
+def parse_args():
+    parser = argparse.ArgumentParser(description="Run an Auto-DDM example.")
+    parser.add_argument("--example", choices=sorted(EXAMPLES),
+                        help="Example to run.")
+    parser.add_argument("--list", action="store_true",
+                        help="List the available examples and exit.")
+    parser.add_argument("--seed", type=int, default=0,
+                        help="Random seed (default: 0). The paper uses 0, 42 and 147 for image_toy.")
+    parser.add_argument("--generations", type=int, default=None,
+                        help="Number of generations (default: the example default).")
+    parser.add_argument("--output-dir", default=None,
+                        help="Results folder (default: results/<example>/seed_<seed>).")
+    parser.add_argument("--env-file", default=str(REPO_ROOT / ".env"),
+                        help="Path to the .env file with the OpenAI settings.")
+    return parser.parse_args()
 
-        pareto_idx = get_pareto_front_indices(all_obj, epsilon=eps)
-        pareto_objs = all_obj[pareto_idx]
 
-        # Average RMSE per candidate, then mean & std across Pareto set
-        candidate_means = np.mean(pareto_objs, axis=1)
-        avg_err_mean = float(np.mean(candidate_means))
-        avg_err_std = float(np.std(candidate_means))
+def main():
+    args = parse_args()
 
-        print(f"  Epsilon: {eps:.4f}")
-        print(f"  Avg Pareto RMS (mean over objectives): {avg_err_mean:.4f}")
-        print(f"  Std Pareto RMS (mean over objectives): {avg_err_std:.4f}")
+    if args.list or args.example is None:
+        print("Available examples:")
+        for name in sorted(EXAMPLES):
+            print(f"  {name}")
+        print("\nRun one with: python main.py --example <name>")
+        return
 
-        step += 1
+    load_env_file(args.env_file)
+    # Import after the .env file is loaded
+    from agents.chatbox import openai_chat_completion, get_client
+    from optimizer.runner import run_optimization
 
-    print("Optimization finished.")
+    get_client()  # stop early if the API key is missing
+
+    problem = load_problem(args.example)
+    config = problem.default_config()
+    if args.generations is not None:
+        config = replace(config, max_generations=args.generations)
+
+    output_dir = Path(args.output_dir or REPO_ROOT / "results" / args.example / f"seed_{args.seed}")
+
+    run_optimization(
+        problem=problem,
+        config=config,
+        llm=openai_chat_completion,
+        seed=args.seed,
+        output_dir=output_dir,
+    )
 
 
 if __name__ == "__main__":
-    run_optimization()
+    main()
