@@ -10,6 +10,7 @@ from openai import APIStatusError, BadRequestError, InternalServerError
 #   OPENAI_BASE_URL     optional, for an OpenAI-compatible endpoint
 #   OPENAI_TEMPERATURE  optional, empty = model default
 DEFAULT_MODEL = "gpt-5-mini"
+DEFAULT_BASE_URL = "https://api.openai.com/v1"
 PLACEHOLDER_KEY = "your-openai-api-key-here"
 
 _client = None
@@ -25,7 +26,7 @@ def get_client():
                 "OPENAI_API_KEY is not set. Put your key in the .env file "
                 "(copy .env.example to .env if the file does not exist)."
             )
-        base_url = os.environ.get("OPENAI_BASE_URL", "").strip() or None
+        base_url = os.environ.get("OPENAI_BASE_URL", "").strip() or DEFAULT_BASE_URL
         _client = openai.OpenAI(api_key=api_key, base_url=base_url)
     return _client
 

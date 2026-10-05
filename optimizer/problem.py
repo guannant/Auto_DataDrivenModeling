@@ -18,8 +18,8 @@ class RunConfig:
     init_std: float = 0.8          # relative std of the initial Gaussian pool
     budget: int = 2                # max parameters an agent may edit per set
     most_recent: int = 50          # window for the diversity agent statistics
-    initial_epsilon: float = 0.0
-    adaptive_epsilon: bool = True  # survivor selection uses the LLM-proposed epsilon
+    initial_epsilon: float = 0.0   # fixed epsilon, or the start value if adaptive
+    adaptive_epsilon: bool = False # True: survivor selection uses the LLM-proposed epsilon
     start_with_repair: bool = True # first graph node: repair agent (True) or variation (False)
     diversity_every: int = 5       # run the diversity agent every N generations
     recursion_limit: int = 10_000  # LangGraph recursion limit
@@ -39,6 +39,8 @@ class Problem:
     name = "problem"
     n_var = None
     n_obj = None
+    # Optional reference line for the MPD plot (for example, a known optimum).
+    mpd_reference = None
 
     def default_config(self) -> RunConfig:
         return RunConfig()

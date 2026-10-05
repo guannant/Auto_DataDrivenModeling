@@ -1,6 +1,7 @@
 import numpy as np
 import ast
 from utils.NSGA_related import get_pareto_front_indices, arr2str
+from agents.agent_log import log_agent
 
 
 def create_llm_condense_repair_agent(llm, max_retries=10):
@@ -66,19 +67,25 @@ def create_llm_condense_repair_agent(llm, max_retries=10):
 
             tries, new_epsilon = 0, None
             while new_epsilon is None and tries < max_retries:
-                result = llm([
+                prompt = [
                     {"role": "system", "content": system_message},
                     {"role": "user", "content": user_msg}
-                ])
+                ]
+                result = llm(prompt)
                 try:
                     new_epsilon = float(result.strip())
                 except Exception:
                     new_epsilon = None
+                log_agent(state, event="llm_call", agent="repair", mode="epsilon", attempt=tries + 1,
+                          messages=prompt, reply=result, valid=new_epsilon is not None)
                 tries += 1
 
             if new_epsilon is None:
                 print("⚠️ LLM failed to propose epsilon, defaulting to 0.1")
                 new_epsilon = 0.1
+
+            log_agent(state, event="result", agent="repair", mode="epsilon",
+                      previous_epsilon=cur_epsilon, new_epsilon=new_epsilon)
 
             return {
                 **state,
@@ -189,6 +196,8 @@ def create_llm_condense_repair_agent(llm, max_retries=10):
                 except Exception:
                     sets = None
 
+                log_agent(state, event="llm_call", agent="repair", mode="edit", attempt=tries + 1,
+                          messages=prompt, reply=result, valid=sets is not None)
                 if sets is None:
                     system_message += (
                         f"\nWARNING: Your previous output was NOT a valid Python list of {len(bad_idx)} dicts "
@@ -198,6 +207,7 @@ def create_llm_condense_repair_agent(llm, max_retries=10):
                 tries += 1
             if sets is None:
                 print("⚠️ LLM repair agent failed, returning unchanged pool.")
+                log_agent(state, event="result", agent="repair", mode="edit", failed=True)
                 return {
                     **state,
                     "condensed_pool": parent_pool,
@@ -206,6 +216,10 @@ def create_llm_condense_repair_agent(llm, max_retries=10):
 
             arrs = [np.array(item['values'], dtype=float) for item in sets]
             rationales = [str(item['rationale']) for item in sets]
+            log_agent(state, event="result", agent="repair", mode="edit", failed=False,
+                      repaired_rows=bad_idx, old_values=parent_pool[bad_idx],
+                      old_objectives=parent_objectives[bad_idx],
+                      new_values=arrs, rationales=rationales)
 
             # ✅ Merge repaired bad sets with original Pareto front
             new_pool = np.vstack([parent_pool[pareto_idx], np.vstack(arrs)])

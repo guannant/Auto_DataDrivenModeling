@@ -50,6 +50,52 @@ def mpd_curves(trace, epsilon=0.0, top_frac=0.20):
     return out
 
 
+def plot_mpd(run_dirs, labels=None, epsilon=0.0, reference=None, out=None):
+    """
+    Write mpd.csv in each run folder and one MPD figure.
+    Return the figure path and the final MPD values of each run.
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    labels = labels or [Path(d).name for d in run_dirs]
+    fig, axes = plt.subplots(2, 1, figsize=(8, 7), sharex=True)
+    finals = []
+    for run_dir, label in zip(run_dirs, labels):
+        trace = np.load(Path(run_dir) / "history_objectives.npy")
+        c = mpd_curves(trace, epsilon=epsilon)
+        x = np.arange(len(c["mpd100"]))
+
+        np.savetxt(Path(run_dir) / "mpd.csv",
+                   np.column_stack([x] + [c[k] for k in c]),
+                   delimiter=",", header="generation," + ",".join(c), comments="")
+        finals.append({"final_mpd100": c["mpd100"][-1], "final_mpd20": c["mpd20"][-1],
+                       "final_pareto_size": int(c["pareto_size"][-1])})
+        print(f"{label}: final MPD-100 = {c['mpd100'][-1]:.4f}, final MPD-20 = {c['mpd20'][-1]:.4f}, "
+              f"Pareto size = {int(c['pareto_size'][-1])}")
+
+        for ax, key in zip(axes, ["mpd100", "mpd20"]):
+            line, = ax.plot(x, c[key], label=label)
+            ax.fill_between(x, c[f"{key}_lo"], c[f"{key}_hi"], color=line.get_color(), alpha=0.15)
+
+    for ax, title in zip(axes, ["MPD-100 (full Pareto front)", "MPD-20 (top 20%)"]):
+        if reference is not None:
+            ax.axhline(reference, linestyle="--", color="green", lw=1.5, label="reference")
+        ax.set_ylabel(title)
+        ax.set_yscale("log")
+        ax.grid(True, linestyle="--", alpha=0.6)
+        ax.legend()
+    axes[-1].set_xlabel("Generation")
+    plt.tight_layout()
+
+    out = Path(out or Path(run_dirs[0]) / "mpd.png")
+    fig.savefig(out, dpi=150)
+    plt.close(fig)
+    print(f"MPD figure saved to {out}")
+    return out, finals
+
+
 def main():
     parser = argparse.ArgumentParser(description="Plot MPD-100 and MPD-20 per generation.")
     parser.add_argument("run_dirs", nargs="+", help="Result folders that contain history_objectives.npy.")
@@ -61,43 +107,10 @@ def main():
     parser.add_argument("--out", default=None, help="Output figure (default: <first run dir>/mpd.png).")
     args = parser.parse_args()
 
-    labels = args.labels or [Path(d).name for d in args.run_dirs]
-    if len(labels) != len(args.run_dirs):
+    if args.labels is not None and len(args.labels) != len(args.run_dirs):
         parser.error("Give one label per result folder.")
-
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-
-    fig, axes = plt.subplots(2, 1, figsize=(8, 7), sharex=True)
-    for run_dir, label in zip(args.run_dirs, labels):
-        trace = np.load(Path(run_dir) / "history_objectives.npy")
-        c = mpd_curves(trace, epsilon=args.epsilon)
-        x = np.arange(len(c["mpd100"]))
-
-        np.savetxt(Path(run_dir) / "mpd.csv",
-                   np.column_stack([x] + [c[k] for k in c]),
-                   delimiter=",", header="generation," + ",".join(c), comments="")
-        print(f"{label}: final MPD-100 = {c['mpd100'][-1]:.4f}, final MPD-20 = {c['mpd20'][-1]:.4f}, "
-              f"Pareto size = {int(c['pareto_size'][-1])}")
-
-        for ax, key in zip(axes, ["mpd100", "mpd20"]):
-            line, = ax.plot(x, c[key], label=label)
-            ax.fill_between(x, c[f"{key}_lo"], c[f"{key}_hi"], color=line.get_color(), alpha=0.15)
-
-    for ax, title in zip(axes, ["MPD-100 (full Pareto front)", "MPD-20 (top 20%)"]):
-        if args.reference is not None:
-            ax.axhline(args.reference, linestyle="--", color="green", lw=1.5, label="reference")
-        ax.set_ylabel(title)
-        ax.set_yscale("log")
-        ax.grid(True, linestyle="--", alpha=0.6)
-        ax.legend()
-    axes[-1].set_xlabel("Generation")
-    plt.tight_layout()
-
-    out = Path(args.out or Path(args.run_dirs[0]) / "mpd.png")
-    fig.savefig(out, dpi=150)
-    print(f"Figure saved to {out}")
+    plot_mpd(args.run_dirs, labels=args.labels, epsilon=args.epsilon,
+             reference=args.reference, out=args.out)
 
 
 if __name__ == "__main__":

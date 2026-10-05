@@ -16,5 +16,6 @@ skills-lock.json
 # Secrets
 .env
 
-# Run outputs
-results/
+# Run outputs (keep the folder structure only)
+results/*/*
+!results/*/.gitkeep

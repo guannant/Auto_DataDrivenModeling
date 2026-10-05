@@ -3,11 +3,12 @@ Auto-DDM entry point.
 
 Examples:
     python main.py --example image_toy --seed 0
-    python main.py --example calphad
+    python main.py --example calphad --adaptive-epsilon
     python main.py --list
 """
 import argparse
 import os
+import time
 from dataclasses import replace
 from pathlib import Path
 
@@ -26,7 +27,9 @@ def load_env_file(path):
         if not line or line.startswith("#") or "=" not in line:
             continue
         key, value = line.split("=", 1)
-        os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+        value = value.strip().strip('"').strip("'")
+        if value:  # an empty value means "use the default"
+            os.environ.setdefault(key.strip(), value)
 
 
 def parse_args():
@@ -39,8 +42,16 @@ def parse_args():
                         help="Random seed (default: 0). The paper uses 0, 42 and 147 for image_toy.")
     parser.add_argument("--generations", type=int, default=None,
                         help="Number of generations (default: the example default).")
+    parser.add_argument("--adaptive-epsilon", action="store_true",
+                        help="Let the repair agent adjust epsilon for survivor selection. "
+                             "Without this option, epsilon stays at the --epsilon value.")
+    parser.add_argument("--epsilon", type=float, default=None,
+                        help="Fixed epsilon for the epsilon-dominance sorting, or the start "
+                             "value with --adaptive-epsilon (default: 0).")
     parser.add_argument("--output-dir", default=None,
-                        help="Results folder (default: results/<example>/seed_<seed>).")
+                        help="Results folder (default: a new folder "
+                             "results/<example>/run_<date>-<time>_seed<seed>). "
+                             "Give the folder of a stopped run to continue it.")
     parser.add_argument("--env-file", default=str(REPO_ROOT / ".env"),
                         help="Path to the .env file with the OpenAI settings.")
     return parser.parse_args()
@@ -58,7 +69,7 @@ def main():
 
     load_env_file(args.env_file)
     # Import after the .env file is loaded
-    from agents.chatbox import openai_chat_completion, get_client
+    from agents.chatbox import openai_chat_completion, get_client, get_model
     from optimizer.runner import run_optimization
 
     get_client()  # stop early if the API key is missing
@@ -67,8 +78,13 @@ def main():
     config = problem.default_config()
     if args.generations is not None:
         config = replace(config, max_generations=args.generations)
+    if args.adaptive_epsilon:
+        config = replace(config, adaptive_epsilon=True)
+    if args.epsilon is not None:
+        config = replace(config, initial_epsilon=args.epsilon)
 
-    output_dir = Path(args.output_dir or REPO_ROOT / "results" / args.example / f"seed_{args.seed}")
+    run_name = f"run_{time.strftime('%Y%m%d-%H%M%S')}_seed{args.seed}"
+    output_dir = Path(args.output_dir or REPO_ROOT / "results" / args.example / run_name)
 
     run_optimization(
         problem=problem,
@@ -76,6 +92,7 @@ def main():
         llm=openai_chat_completion,
         seed=args.seed,
         output_dir=output_dir,
+        run_info={"model": get_model()},
     )
 
 

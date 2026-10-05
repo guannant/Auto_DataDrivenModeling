@@ -1,6 +1,7 @@
 import numpy as np
 import ast
 from utils.NSGA_related import arr2str
+from agents.agent_log import log_agent
 
 
 def create_llm_diversity_agent(llm, max_retries=10):
@@ -108,10 +109,11 @@ def create_llm_diversity_agent(llm, max_retries=10):
         sets = None
         report_raw = ""
         while sets is None and tries < max_retries:
-            result = llm([
+            prompt = [
                 {"role": "system", "content": system_message},
                 {"role": "user", "content": user_msg}
-            ])
+            ]
+            result = llm(prompt)
             report_raw = result
             try:
                 sets = ast.literal_eval(result.strip())
@@ -132,6 +134,8 @@ def create_llm_diversity_agent(llm, max_retries=10):
             except Exception:
                 sets = None
 
+            log_agent(state, event="llm_call", agent="diversity", mode="edit", attempt=tries + 1,
+                      messages=prompt, reply=result, valid=sets is not None)
             if sets is None:
                 system_message += (
                     f"\nWARNING: Your previous output was NOT a valid Python list of {pool_size} dicts "
@@ -142,6 +146,7 @@ def create_llm_diversity_agent(llm, max_retries=10):
 
         if sets is None:
             print("⚠️ LLM Diversity agent failed, returning unchanged pool.")
+            log_agent(state, event="result", agent="diversity", mode="edit", failed=True)
             return {
                 **state,
                 "diverse_pool": parent_pool,
@@ -151,6 +156,9 @@ def create_llm_diversity_agent(llm, max_retries=10):
 
         arrs = [np.array(item['values'], dtype=float) for item in sets]
         rationales = [str(item['rationale']) for item in sets]
+        log_agent(state, event="result", agent="diversity", mode="edit", failed=False,
+                  old_values=parent_pool, old_objectives=parent_objectives,
+                  new_values=arrs, rationales=rationales)
 
         return {
             **state,

@@ -13,6 +13,13 @@ Auto-DDM (Autonomous Data-Driven Modeling) finds dataset weights for model calib
 - **Repair agent.** It edits poorly performing candidates. It uses parameter–parameter correlations, parameter–objective correlations, PCA, and the spread of each parameter. If all candidates are on the Pareto front, it proposes a new ε instead.
 - **Diversity agent.** Every 5 generations, it perturbs the parent pool to stop an early collapse of the search.
 
+ε sets the tolerance of the ε-dominance sorting in survivor selection. Two modes are available:
+
+- **Constant ε (default).** ε keeps the value of `--epsilon` (default 0) for the full run. The paper uses this mode for the image toy example.
+- **Adaptive ε (`--adaptive-epsilon`).** Survivor selection uses the ε that the repair agent proposes. The paper uses this mode for the CALPHAD example, where 22 objectives put almost all candidates on the Pareto front.
+
+In both modes, the repair agent proposes an ε when all candidates are on the Pareto front. In constant mode, survivor selection does not use the proposal.
+
 The repository contains the two case studies from the paper:
 
 | Example | Parameters | Objectives | Description |
@@ -60,53 +67,99 @@ python main.py --list                                   # show the examples
 python main.py --example image_toy --generations 5      # short test run
 ```
 
+### Command-line options
+
+| Option | Default | Description |
+|---|---|---|
+| `--example` | none (required) | `image_toy` or `calphad` |
+| `--seed` | `0` | Random seed for the evolutionary operators |
+| `--generations` | example default | Number of generations |
+| `--epsilon` | `0` | ε for the ε-dominance sorting in survivor selection |
+| `--adaptive-epsilon` | off | Let the repair agent change ε during the run. `--epsilon` is then the start value. Without this option, ε keeps the `--epsilon` value for the full run. |
+| `--output-dir` | new run folder | Results folder. Give the folder of a stopped run to continue it. |
+| `--env-file` | `.env` | File with the OpenAI settings |
+
+The paper uses a constant ε = 0 for the image toy example and an adaptive ε for the CALPHAD example.
+
 ## Reproduce the paper results
 
 The LLM replies are not deterministic. Two runs with the same seed can give different numbers. The trends in the paper (convergence of MPD-100 and MPD-20) should repeat. The exact values do not repeat.
 
 ### Image toy (paper Fig. 6)
 
-Run the three seeds from the paper. Then plot the MPD metrics:
+Run the three seeds from the paper:
 
 ```bash
 python main.py --example image_toy --seed 0
 python main.py --example image_toy --seed 42
 python main.py --example image_toy --seed 147
-
-python analysis/mpd.py results/image_toy/seed_0 results/image_toy/seed_42 results/image_toy/seed_147 \
-    --labels "seed 0" "seed 42" "seed 147" --reference 0.4498 --out results/image_toy/mpd.png
 ```
 
-Each run has 100 generations. The reconstruction takes approximately 2 s per generation on a laptop CPU, plus the time for the LLM calls. The theoretical best distance is approximately 0.45 (dashed line). Expect MPD-20 to converge near this line.
+Each run has 100 generations. The reconstruction takes approximately 2 s per generation on a laptop CPU, plus the time for the LLM calls. The theoretical best distance is approximately 0.45 (dashed line in `mpd.png`). Expect MPD-20 to converge near this line.
+
+To compare the three runs in one figure, give their folders to `analysis/mpd.py`:
+
+```bash
+python analysis/mpd.py results/image_toy/run_*_seed0 results/image_toy/run_*_seed42 results/image_toy/run_*_seed147 \
+    --labels "seed 0" "seed 42" "seed 147" --reference 0.4498 --out results/image_toy/mpd_seeds.png
+```
 
 ### Cu–Mg CALPHAD assessment (paper Fig. 8)
 
 ```bash
-python main.py --example calphad --seed 0
-python analysis/mpd.py results/calphad/seed_0 --out results/calphad/mpd.png
+python main.py --example calphad --seed 0 --adaptive-epsilon
 ```
 
 Each candidate runs one ESPEI MCMC calibration (800 iterations) with the MLP surrogate. This takes approximately 35 s on an Apple M4. The run evaluates 20 initial candidates and 10 offspring per generation, so 50 generations take approximately 5 to 6 hours. For a short test, add `--generations 2`.
 
-The run writes one calibrated TDB file per candidate (`LLM_agent_<generation>_<index>.tdb`) to the results folder. If a TDB file already exists, the run uses it again and does not run ESPEI for that candidate. Thus you can continue a stopped run with the same command. To start a new run, delete the folder or use `--output-dir`.
+The run writes one calibrated TDB file per candidate (`LLM_agent_<generation>_<index>.tdb`) to its run folder. To continue a stopped run, give its folder with `--output-dir`:
 
-### Output files
+```bash
+python main.py --example calphad --seed 0 --adaptive-epsilon --output-dir results/calphad/run_20261006-090000_seed0
+```
 
-Each run writes to `results/<example>/seed_<seed>/` (change it with `--output-dir`):
+The run uses each TDB file that already exists and does not run ESPEI again for that candidate.
 
-| File | Content |
+### Results folder
+
+Each run writes to a new folder `results/<example>/run_<date>-<time>_seed<seed>/`. When a run finishes, it adds one summary row to `results/<example>/runs.csv`. The row contains the seed, model, start and end time, generations, and the final MPD-100 and MPD-20.
+
+| File in a run folder | Content |
 |---|---|
-| `history_objectives.npy` | Parent-pool objectives per generation, shape (generations + 1, pool size, objectives). `analysis/mpd.py` reads this file. |
+| `run.log` | Console output of the run |
+| `agent_log.jsonl` | Agent prompts, LLM replies, and proposed edits. See below. |
+| `history_objectives.npy` | Parent-pool objectives per generation, shape (generations + 1, pool size, objectives) |
 | `history_parent_pool.npy` | Parent-pool parameters (dataset weights) per generation |
 | `all_params.npy`, `all_objectives.npy` | All evaluated candidates |
 | `epsilon_per_generation.npy` | ε used for survivor selection in each generation |
-| `run_config.json` | Example, seed, and run settings |
-| `mpd.csv`, `mpd.png` | MPD metrics per generation (written by `analysis/mpd.py`) |
+| `run_config.json` | Example, seed, model, and run settings |
+| `mpd.csv`, `mpd.png` | MPD-100 and MPD-20 per generation (calculated at the end of the run) |
 | `datasets.png` | Image toy only: ground truth and the three datasets |
+| `LLM_agent_*.tdb`, `espei_log.txt` | CALPHAD only: calibrated TDB files and the ESPEI log |
+
+`results/README.md` lists all files. Git does not track the run folders.
+
+### Agent log
+
+`agent_log.jsonl` has one JSON record per line. `generation` is the number of completed generations when the agent ran.
+
+| `event` | Fields |
+|---|---|
+| `llm_call` | `agent` (`repair` or `diversity`), `mode` (`edit` or `epsilon`), `attempt`, `messages` (system and user prompt), `reply`, `valid` |
+| `result` (edit) | `old_values`, `old_objectives`, `new_values`, `rationales`, `failed`. Repair results also have `repaired_rows`. `new_values` are the LLM values before the code clips them to the bounds. |
+| `result` (epsilon) | `previous_epsilon`, `new_epsilon`. In constant-ε mode, survivor selection does not use `new_epsilon`. |
+
+To read the log in Python:
+
+```python
+import json
+records = [json.loads(line) for line in open("results/image_toy/<run folder>/agent_log.jsonl")]
+rationales = [r["rationales"] for r in records if r["event"] == "result" and "rationales" in r]
+```
 
 ### Run settings
 
-The values below are the defaults in `default_config()` of each example. They are the settings of the paper runs.
+The values below are the settings of the paper runs. Most of them are the defaults in `default_config()` of each example. The CALPHAD runs also need `--adaptive-epsilon`.
 
 | Setting | image_toy | calphad |
 |---|---|---|
@@ -116,7 +169,7 @@ The values below are the defaults in `default_config()` of each example. They ar
 | Initial guess | random, from the seed | `examples/CALPHAD/initial_weights.json` |
 | Initial Gaussian spread (relative std) | 0.8 | 0.8 |
 | Agent edit budget (parameters per candidate) | 3 | 22 |
-| ε in survivor selection | always 0 | adaptive (proposed by the repair agent) |
+| ε in survivor selection | constant 0 (default) | adaptive (`--adaptive-epsilon`) |
 | First step | variation | repair agent |
 | Diversity agent | every 5 generations | every 5 generations |
 | Diversity statistics window | 50 most recent candidates | 50 most recent candidates |
@@ -143,6 +196,7 @@ agents/
   chatbox.py                OpenAI client (reads the .env settings)
   repair.py                 Repair agent (parameter edits and ε adjustment)
   diversity.py              Diversity agent
+  agent_log.py              Writes agent_log.jsonl
 optimizer/
   problem.py                Problem interface and RunConfig (run settings)
   network.py                LangGraph workflow (repair → variation → evaluation → survival)
@@ -151,6 +205,7 @@ utils/
   NSGA_related.py           NSGA-II operators, ε-dominance, population statistics
 analysis/
   mpd.py                    MPD-100 and MPD-20 metrics and plot
+results/                    Run folders and runs.csv for each example
 examples/
   __init__.py               Example registry
   image_toy/                Synthetic image toy

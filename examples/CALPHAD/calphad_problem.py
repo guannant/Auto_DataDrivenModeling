@@ -151,7 +151,7 @@ class CalphadProblem(Problem):
             budget=self.n_obj,
             most_recent=50,
             initial_epsilon=0.0,
-            adaptive_epsilon=True,
+            adaptive_epsilon=False,   # main.py --adaptive-epsilon turns it on (paper setting)
             start_with_repair=True,
         )
 

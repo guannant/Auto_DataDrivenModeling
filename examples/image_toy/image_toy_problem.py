@@ -105,6 +105,7 @@ class ImageToyProblem(Problem):
     name = "image_toy"
     n_var = 3
     n_obj = 3
+    mpd_reference = 0.4498  # theoretical best distance to the ideal point
 
     def __init__(self,H=64,W=64,data_seed=0,
                  obs_sigmas=(1e-3,1e-3,1e-3),
@@ -216,7 +217,7 @@ class ImageToyProblem(Problem):
             budget=3,
             most_recent=50,
             initial_epsilon=0.0,
-            adaptive_epsilon=False,   # epsilon = 0 for survivor selection (low-dimensional task)
+            adaptive_epsilon=False,   # fixed epsilon (paper setting for this example)
             start_with_repair=False,  # first generation starts with variation
         )
 
