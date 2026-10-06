@@ -4,6 +4,7 @@ Auto-DDM entry point.
 Examples:
     python main.py --example image_toy --seed 0
     python main.py --example calphad --adaptive-epsilon
+    python main.py --example image_toy --baseline
     python main.py --list
 """
 import argparse
@@ -42,6 +43,9 @@ def parse_args():
                         help="Random seed (default: 0). The paper uses 0, 42 and 147 for image_toy.")
     parser.add_argument("--generations", type=int, default=None,
                         help="Number of generations (default: the example default).")
+    parser.add_argument("--baseline", action="store_true",
+                        help="Run the NSGA-II baseline without the LLM agents. "
+                             "No OpenAI API key is necessary.")
     parser.add_argument("--adaptive-epsilon", action="store_true",
                         help="Let the repair agent adjust epsilon for survivor selection. "
                              "Without this option, epsilon stays at the --epsilon value.")
@@ -67,12 +71,19 @@ def main():
         print("\nRun one with: python main.py --example <name>")
         return
 
+    if args.baseline and args.adaptive_epsilon:
+        raise SystemExit("--adaptive-epsilon needs the repair agent. Do not use it with --baseline.")
+
     load_env_file(args.env_file)
     # Import after the .env file is loaded
     from agents.chatbox import openai_chat_completion, get_client, get_model
     from optimizer.runner import run_optimization
 
-    get_client()  # stop early if the API key is missing
+    if args.baseline:
+        llm, model = None, "none"
+    else:
+        get_client()  # stop early if the API key is missing
+        llm, model = openai_chat_completion, get_model()
 
     problem = load_problem(args.example)
     config = problem.default_config()
@@ -82,17 +93,21 @@ def main():
         config = replace(config, adaptive_epsilon=True)
     if args.epsilon is not None:
         config = replace(config, initial_epsilon=args.epsilon)
+    if args.baseline:
+        config = replace(config, baseline=True)
 
     run_name = f"run_{time.strftime('%Y%m%d-%H%M%S')}_seed{args.seed}"
+    if args.baseline:
+        run_name += "_baseline"
     output_dir = Path(args.output_dir or REPO_ROOT / "results" / args.example / run_name)
 
     run_optimization(
         problem=problem,
         config=config,
-        llm=openai_chat_completion,
+        llm=llm,
         seed=args.seed,
         output_dir=output_dir,
-        run_info={"model": get_model()},
+        run_info={"model": model},
     )
 
 

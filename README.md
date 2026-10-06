@@ -20,6 +20,8 @@ Auto-DDM (Autonomous Data-Driven Modeling) finds dataset weights for model calib
 
 In both modes, the repair agent proposes an ε when all candidates are on the Pareto front. In constant mode, survivor selection does not use the proposal.
 
+For comparison, `--baseline` runs the same NSGA-II loop without the two LLM agents (variation → evaluation → survival). The baseline does not use the OpenAI API.
+
 The repository contains the two case studies from the paper:
 
 | Example | Parameters | Objectives | Description |
@@ -74,6 +76,7 @@ python main.py --example image_toy --generations 5      # short test run
 | `--example` | none (required) | `image_toy` or `calphad` |
 | `--seed` | `0` | Random seed for the evolutionary operators |
 | `--generations` | example default | Number of generations |
+| `--baseline` | off | Run NSGA-II without the LLM agents. No API key is necessary. |
 | `--epsilon` | `0` | ε for the ε-dominance sorting in survivor selection |
 | `--adaptive-epsilon` | off | Let the repair agent change ε during the run. `--epsilon` is then the start value. Without this option, ε keeps the `--epsilon` value for the full run. |
 | `--output-dir` | new run folder | Results folder. Give the folder of a stopped run to continue it. |
@@ -83,7 +86,7 @@ The paper uses a constant ε = 0 for the image toy example and an adaptive ε fo
 
 ## Reproduce the paper results
 
-The LLM replies are not deterministic. Two runs with the same seed can give different numbers. The trends in the paper (convergence of MPD-100 and MPD-20) should repeat. The exact values do not repeat.
+The LLM replies are not deterministic. Two runs with the same seed can give different numbers. The trends in the paper should repeat. The exact values do not repeat.
 
 ### Image toy (paper Fig. 6)
 
@@ -95,19 +98,21 @@ python main.py --example image_toy --seed 42
 python main.py --example image_toy --seed 147
 ```
 
-Each run has 100 generations. The reconstruction takes approximately 2 s per generation on a laptop CPU, plus the time for the LLM calls. The theoretical best distance is approximately 0.45 (dashed line in `mpd.png`). Expect MPD-20 to converge near this line.
+Each run has 100 generations. The reconstruction takes approximately 2 s per generation on a laptop CPU, plus the time for the LLM calls.
 
-To compare the three runs in one figure, give their folders to `analysis/mpd.py`:
+To run the NSGA-II baseline for the same seeds:
 
 ```bash
-python analysis/mpd.py results/image_toy/run_*_seed0 results/image_toy/run_*_seed42 results/image_toy/run_*_seed147 \
-    --labels "seed 0" "seed 42" "seed 147" --reference 0.4498 --out results/image_toy/mpd_seeds.png
+python main.py --example image_toy --seed 0 --baseline
+python main.py --example image_toy --seed 42 --baseline
+python main.py --example image_toy --seed 147 --baseline
 ```
 
 ### Cu–Mg CALPHAD assessment (paper Fig. 8)
 
 ```bash
 python main.py --example calphad --seed 0 --adaptive-epsilon
+python main.py --example calphad --seed 0 --baseline        # NSGA-II baseline
 ```
 
 Each candidate runs one ESPEI MCMC calibration (800 iterations) with the MLP surrogate. This takes approximately 35 s on an Apple M4. The run evaluates 20 initial candidates and 10 offspring per generation, so 50 generations take approximately 5 to 6 hours. For a short test, add `--generations 2`.
@@ -122,18 +127,17 @@ The run uses each TDB file that already exists and does not run ESPEI again for 
 
 ### Results folder
 
-Each run writes to a new folder `results/<example>/run_<date>-<time>_seed<seed>/`. When a run finishes, it adds one summary row to `results/<example>/runs.csv`. The row contains the seed, model, start and end time, generations, and the final MPD-100 and MPD-20.
+Each run writes to a new folder `results/<example>/run_<date>-<time>_seed<seed>/`. Baseline folders end with `_baseline`. When a run finishes, it adds one summary row to `results/<example>/runs.csv`. The row contains the method (`auto-ddm` or `baseline`), seed, model, start and end time, generations, and the number of evaluations.
 
 | File in a run folder | Content |
 |---|---|
 | `run.log` | Console output of the run |
-| `agent_log.jsonl` | Agent prompts, LLM replies, and proposed edits. See below. |
+| `agent_log.jsonl` | Agent prompts, LLM replies, and proposed edits. See below. (Not written by baseline runs.) |
 | `history_objectives.npy` | Parent-pool objectives per generation, shape (generations + 1, pool size, objectives) |
 | `history_parent_pool.npy` | Parent-pool parameters (dataset weights) per generation |
 | `all_params.npy`, `all_objectives.npy` | All evaluated candidates |
 | `epsilon_per_generation.npy` | ε used for survivor selection in each generation |
 | `run_config.json` | Example, seed, model, and run settings |
-| `mpd.csv`, `mpd.png` | MPD-100 and MPD-20 per generation (calculated at the end of the run) |
 | `datasets.png` | Image toy only: ground truth and the three datasets |
 | `LLM_agent_*.tdb`, `espei_log.txt` | CALPHAD only: calibrated TDB files and the ESPEI log |
 
@@ -166,7 +170,7 @@ The values below are the settings of the paper runs. Most of them are the defaul
 | Generations | 100 | 50 |
 | Initial population / parent pool / offspring | 20 / 20 / 10 | 20 / 20 / 10 |
 | Parameter bounds | [1e-9, 1] | [0.01, 1000] |
-| Initial guess | random, from the seed | `examples/CALPHAD/initial_weights.json` |
+| Initial guess | (0.5, 0.7, 0.2) | `examples/CALPHAD/initial_weights.json` |
 | Initial Gaussian spread (relative std) | 0.8 | 0.8 |
 | Agent edit budget (parameters per candidate) | 3 | 22 |
 | ε in survivor selection | constant 0 (default) | adaptive (`--adaptive-epsilon`) |
@@ -203,8 +207,6 @@ optimizer/
   runner.py                 Runs one optimization and saves the results
 utils/
   NSGA_related.py           NSGA-II operators, ε-dominance, population statistics
-analysis/
-  mpd.py                    MPD-100 and MPD-20 metrics and plot
 results/                    Run folders and runs.csv for each example
 examples/
   __init__.py               Example registry

@@ -105,7 +105,6 @@ class ImageToyProblem(Problem):
     name = "image_toy"
     n_var = 3
     n_obj = 3
-    mpd_reference = 0.4498  # theoretical best distance to the ideal point
 
     def __init__(self,H=64,W=64,data_seed=0,
                  obs_sigmas=(1e-3,1e-3,1e-3),
@@ -225,8 +224,8 @@ class ImageToyProblem(Problem):
         self.plot_datasets(Path(output_dir) / "datasets.png")
 
     def initial_guess(self, rng):
-        # Arbitrary initial guess, drawn from the run seed
-        return rng.uniform(0, 1, size=self.n_var)
+        # Arbitrary initial guess
+        return np.array([0.5, 0.7, 0.2])
 
     def evaluate(self, params, generation):
         results=[]
@@ -245,6 +244,8 @@ class ImageToyProblem(Problem):
         f"while decreasing epsilon makes it looser (more points survive).\n"
     )
     show_current_epsilon = False
+    # If the repair agent fails, keep the pool with the Pareto members first
+    repair_failure_pareto_first = True
 
     def repair_prompt_header(self, n_vars, n_objs):
         return (

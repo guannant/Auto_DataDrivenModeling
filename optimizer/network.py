@@ -81,16 +81,15 @@ def evaluate_and_survivor_node(state):
     par_chi_obj = np.vstack([parent_objectives, offspring_objectives])
     par_chi_params = np.vstack([parent_pool, offsprings])
     # Adaptive: use the epsilon proposed by the repair agent. Fixed: keep the initial epsilon.
-    if state["adaptive_epsilon"]:
-        eps = state.get("new_epsilon", state['eps_vals'])
-    else:
-        eps = state['eps_vals']
+    # In both modes, epsilon goes down by 10% while no candidate survives the sorting.
+    eps_key = "new_epsilon" if state["adaptive_epsilon"] else "fixed_epsilon"
+    eps = state.get(eps_key, state['eps_vals'])
     survivors, ranks, crowd = nsga2_survival(rng, par_chi_obj, n_survive=parent_pool.shape[0],
                                                 epsilon=eps, max_allowed=None,
                                                 )
     while len(survivors) == 0:
         eps *= 0.9
-        state["new_epsilon"] = eps
+        state[eps_key] = eps
         survivors, ranks, crowd = nsga2_survival(rng, par_chi_obj, n_survive=parent_pool.shape[0],
                                                 epsilon=eps, max_allowed=None,
                                                 )
@@ -118,6 +117,9 @@ def should_run_diversity(state):
     every = state.get("diversity_every", 5)
     return (state["generation"] % every == 0) and (state["generation"] > 0)
 
+def next_step_baseline(state):
+    return "END" if should_stop(state) else "ApplyStrategy"
+
 def next_step_after_eval(state):
     if should_stop(state):
         return "END"
@@ -125,6 +127,19 @@ def next_step_after_eval(state):
         return "DiversityAgent"
     else:
         return "CondenseRepair"
+
+def build_ea_langgraph_baseline():
+    # NSGA-II without the LLM agents: variation -> evaluation -> survival
+    workflow = StateGraph(dict)
+    workflow.add_node("ApplyStrategy", apply_strategy_node)
+    workflow.add_node("EvalAndSurvivor", evaluate_and_survivor_node)
+    workflow.add_edge(START, "ApplyStrategy")
+    workflow.add_edge("ApplyStrategy", "EvalAndSurvivor")
+    workflow.add_conditional_edges("EvalAndSurvivor", next_step_baseline, {
+        "END": END,
+        "ApplyStrategy": "ApplyStrategy",
+    })
+    return workflow.compile()
 
 def build_ea_langgraph_merged(start_with_repair=True):
     workflow = StateGraph(dict)

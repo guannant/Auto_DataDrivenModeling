@@ -13,9 +13,8 @@ from utils.NSGA_related import (
     get_bounds_and_constraints,
     get_index_mapping_note,
 )
-from optimizer.network import build_ea_langgraph_merged
+from optimizer.network import build_ea_langgraph_merged, build_ea_langgraph_baseline
 from agents.agent_log import AgentLogger
-from analysis.mpd import plot_mpd
 
 
 class _Tee:
@@ -27,6 +26,7 @@ class _Tee:
     def write(self, text):
         self.stream.write(text)
         self.log_file.write(text)
+        self.log_file.flush()  # keep run.log current while the run is going
         return len(text)
 
     def flush(self):
@@ -60,14 +60,14 @@ def run_optimization(problem, config, llm, seed=0, output_dir="results", run_inf
         The task to optimize (for example, CALPHAD or the image toy).
     config : optimizer.problem.RunConfig
         Population sizes, bounds, budget, and epsilon settings.
-    llm : callable
+    llm : callable or None
         Chat function: takes a list of messages and returns the reply text.
+        Not used if config.baseline is True.
     seed : int
         Random seed for the evolutionary operators.
     output_dir : str or Path
         Folder for the run results. The run writes run.log (console output),
-        agent_log.jsonl (all agent prompts and replies), the trace .npy files,
-        and mpd.csv / mpd.png.
+        agent_log.jsonl (all agent prompts and replies), and the trace .npy files.
     run_info : dict, optional
         Extra values (for example, the LLM model) for run_config.json and runs.csv.
 
@@ -82,16 +82,14 @@ def run_optimization(problem, config, llm, seed=0, output_dir="results", run_inf
     start = time.strftime("%Y-%m-%d %H:%M:%S")
     with log_console(output_dir / "run.log"):
         final_state = _run(problem, config, llm, seed, output_dir, run_info)
-        print("Computing MPD metrics...")
-        _, finals = plot_mpd([output_dir], labels=[f"{problem.name} seed {seed}"],
-                             reference=problem.mpd_reference)
         append_run_summary(
             output_dir.parent / "runs.csv",
-            {"run_dir": output_dir.name, "example": problem.name, "seed": seed,
+            {"run_dir": output_dir.name, "example": problem.name,
+             "method": "baseline" if config.baseline else "auto-ddm", "seed": seed,
              "start": start, "end": time.strftime("%Y-%m-%d %H:%M:%S"),
              "generations": final_state["generation"],
              "evaluations": len(final_state["all_para"]),
-             **run_info, **finals[0]},
+             **run_info},
         )
         print(f"Optimization finished. Results are in {output_dir}")
     return final_state
@@ -101,12 +99,18 @@ def append_run_summary(path, row):
     """Add one row per finished run to <example results folder>/runs.csv."""
     import csv
     path = Path(path)
-    new_file = not path.exists()
-    with open(path, "a", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=list(row))
-        if new_file:
-            writer.writeheader()
-        writer.writerow(row)
+    rows = []
+    if path.exists():
+        with open(path, newline="") as f:
+            rows = list(csv.DictReader(f))
+    rows.append(row)
+    fields = []
+    for r in rows:
+        fields += [k for k in r if k not in fields]
+    with open(path, "w", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fields)
+        writer.writeheader()
+        writer.writerows(rows)
 
 
 def _run(problem, config, llm, seed, output_dir, run_info):
@@ -169,9 +173,13 @@ def _run(problem, config, llm, seed, output_dir, run_info):
         "agent_logger": AgentLogger(output_dir / "agent_log.jsonl"),
     }
 
-    workflow = build_ea_langgraph_merged(start_with_repair=config.start_with_repair)
+    if config.baseline:
+        workflow = build_ea_langgraph_baseline()
+    else:
+        workflow = build_ea_langgraph_merged(start_with_repair=config.start_with_repair)
 
-    print(f"Starting optimization: example={problem.name}, seed={seed}, "
+    method = "baseline NSGA-II (no LLM)" if config.baseline else "Auto-DDM"
+    print(f"Starting optimization: {method}, example={problem.name}, seed={seed}, "
           f"generations={config.max_generations}")
     final_state = init_state
     epsilons = []

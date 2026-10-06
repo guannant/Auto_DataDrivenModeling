@@ -20,6 +20,7 @@ class RunConfig:
     most_recent: int = 50          # window for the diversity agent statistics
     initial_epsilon: float = 0.0   # fixed epsilon, or the start value if adaptive
     adaptive_epsilon: bool = False # True: survivor selection uses the LLM-proposed epsilon
+    baseline: bool = False         # True: NSGA-II without the LLM agents
     start_with_repair: bool = True # first graph node: repair agent (True) or variation (False)
     diversity_every: int = 5       # run the diversity agent every N generations
     recursion_limit: int = 10_000  # LangGraph recursion limit
@@ -39,8 +40,6 @@ class Problem:
     name = "problem"
     n_var = None
     n_obj = None
-    # Optional reference line for the MPD plot (for example, a known optimum).
-    mpd_reference = None
 
     def default_config(self) -> RunConfig:
         return RunConfig()
@@ -62,6 +61,9 @@ class Problem:
     epsilon_prompt_hint = ""
     # Show the current epsilon value to the LLM in the epsilon-adjustment prompt.
     show_current_epsilon = True
+    # If the repair agent fails: False = keep the parent pool unchanged,
+    # True = keep the same candidates, with the Pareto members first.
+    repair_failure_pareto_first = False
 
     def repair_prompt_header(self, n_vars: int, n_objs: int) -> str:
         """System prompt text before the 'What you will be given' list."""

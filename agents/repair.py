@@ -208,6 +208,12 @@ def create_llm_condense_repair_agent(llm, max_retries=10):
             if sets is None:
                 print("⚠️ LLM repair agent failed, returning unchanged pool.")
                 log_agent(state, event="result", agent="repair", mode="edit", failed=True)
+                if problem.repair_failure_pareto_first:
+                    return {
+                        **state,
+                        "condensed_pool": np.vstack([parent_pool[pareto_idx], parent_pool[bad_idx]]),
+                        "rationales": [f"(repair failed after {max_retries} tries)" for _ in bad_idx],
+                    }
                 return {
                     **state,
                     "condensed_pool": parent_pool,
