@@ -19,3 +19,6 @@ skills-lock.json
 # Run outputs (keep the folder structure only)
 results/*/*
 !results/*/.gitkeep
+
+# Figures made by paper_data/plot_mpd.py
+paper_data/figures/

@@ -178,6 +178,36 @@ The values below are the settings of the paper runs. Most of them are the defaul
 | Diversity agent | every 5 generations | every 5 generations |
 | Diversity statistics window | 50 most recent candidates | 50 most recent candidates |
 
+## Paper data
+
+The folder `paper_data/` contains the optimization traces of the runs reported in the paper, for Auto-DDM and the NSGA-II baseline. `paper_data/plot_mpd.py` plots the MPD-100 and MPD-20 curves from these files.
+
+```bash
+python paper_data/plot_mpd.py            # save the figures to paper_data/figures/
+python paper_data/plot_mpd.py --show     # also open the figures
+```
+
+The script writes `image_toy_mpd.png` (seeds 0, 42, and 147), `image_toy_pareto_size_seed147.png`, and `calphad_mpd.png`.
+
+### Image toy traces
+
+| File | Content |
+|---|---|
+| `image_toy/trace<seed>.npy` | Auto-DDM, seeds 0, 42, and 147 |
+| `image_toy/trace<seed>_no_llm.npy` | NSGA-II baseline, same seeds |
+
+Each file has the shape (101, 20, 3): the parent pool of generation 0 to 100, with 20 candidates and 3 objectives (normalized RMS errors). The format is the same as `history_objectives.npy` in a run folder.
+
+### CALPHAD traces
+
+| File | Content |
+|---|---|
+| `calphad/all_params.npy`, `calphad/all_objs.npy` | Auto-DDM: dataset weights and errors of all evaluated candidates, shape (520, 22) |
+| `calphad/epsilon.npy` | Auto-DDM: ε of each generation, shape (50,) |
+| `calphad/all_params_no_llm.npy`, `calphad/all_objs_no_llm.npy` | NSGA-II baseline: dataset weights and errors of all evaluated candidates, shape (520, 22) |
+
+The rows are in evaluation order. Rows 0–19 are the initial parent pool. Each following block of 10 rows is the offspring of one generation (50 generations). The parameter and objective columns follow the dataset order in `examples/CALPHAD/calphad_problem.py`. For the MPD curves, the script uses the ε of each generation for Auto-DDM and ε = 40 for the baseline.
+
 ## How the CALPHAD example works
 
 For each candidate weight vector, `examples/CALPHAD/calphad_problem.py`:
@@ -208,6 +238,7 @@ optimizer/
 utils/
   NSGA_related.py           NSGA-II operators, ε-dominance, population statistics
 results/                    Run folders and runs.csv for each example
+paper_data/                 Traces of the paper runs and the MPD plot script
 examples/
   __init__.py               Example registry
   image_toy/                Synthetic image toy
